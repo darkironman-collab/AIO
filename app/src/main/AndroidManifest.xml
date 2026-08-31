@@ -2,18 +2,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:theme="@style/AppTheme"
-        android:label="AIO"
-        android:usesCleartextTraffic="true">
+        android:label="AIOStreams"
+        android:usesCleartextTraffic="true"
+        android:extractNativeLibs="true">
 
         <service
             android:name=".LocalStackService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:exported="false" />
 
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
