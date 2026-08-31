@@ -7,11 +7,10 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.text.method.LinkMovementMethod
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -19,61 +18,70 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
-    private lateinit var toggle: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
 
         val title = TextView(this).apply {
             text = "AIO"
-            textSize = 36f
+            textSize = 42f
+            gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
         }
+
         val subtitle = TextView(this).apply {
-            text = "Local Android Stack"
-            textSize = 17f
-        }
-        status = TextView(this).apply {
+            text = "Local Server"
             textSize = 18f
-            setPadding(0, 32, 0, 18)
+            gravity = Gravity.CENTER
+            setPadding(0, 6, 0, 28)
         }
-        toggle = Button(this).apply {
+
+        status = TextView(this).apply {
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 18)
+        }
+
+        val server = Button(this).apply {
+            text = "SERVER"
+            textSize = 20f
+            setOnClickListener { openServer() }
+        }
+
+        val stop = Button(this).apply {
+            text = "STOP SERVER"
             setOnClickListener {
-                if (LocalStackService.running) stopService(Intent(this@MainActivity, LocalStackService::class.java))
-                else ContextCompat.startForegroundService(this@MainActivity, Intent(this@MainActivity, LocalStackService::class.java))
+                stopService(Intent(this@MainActivity, LocalStackService::class.java))
                 postDelayedRefresh()
             }
         }
 
-        val configure = button("OPEN AIO CONFIGURATION") { open("http://127.0.0.1:3001/stremio/configure") }
-        val bridge = button("OPEN BRIDGE · 8080") { open("http://127.0.0.1:8080/") }
-        val plugins = button("OPEN PLUGIN MANAGER · 8091") { open("http://127.0.0.1:8091/") }
-        val manifest = button("OPEN LOCAL MANIFEST") { open("http://127.0.0.1:3001/manifest.json") }
-
-        val info = TextView(this).apply {
-            text = "AIO Server  : 127.0.0.1:3001\nBridge      : 127.0.0.1:8080\nPlugins     : 127.0.0.1:8091\n\nThe local server can run without Oracle VPS. Add compatible Stremio manifest URLs from the browser configuration page; AIO combines their stream results locally."
+        val hint = TextView(this).apply {
+            text = "SERVER par tap karte hi AIO configuration page browser mein khulega."
+            gravity = Gravity.CENTER
             textSize = 14f
-            setPadding(0, 28, 0, 20)
-            movementMethod = LinkMovementMethod.getInstance()
+            setPadding(12, 28, 12, 0)
         }
 
-        val column = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(42, 70, 42, 42)
-            addView(title)
-            addView(subtitle)
-            addView(status)
-            addView(toggle, fullWidth())
-            addView(configure, fullWidth())
-            addView(bridge, fullWidth())
-            addView(plugins, fullWidth())
-            addView(manifest, fullWidth())
-            addView(info)
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(42, 90, 42, 42)
+            addView(title, fullWidth())
+            addView(subtitle, fullWidth())
+            addView(status, fullWidth())
+            addView(server, fullWidth())
+            addView(stop, fullWidth(12))
+            addView(hint, fullWidth())
         }
-        setContentView(ScrollView(this).apply { addView(column) })
+
+        setContentView(root)
         refresh()
     }
 
@@ -82,37 +90,32 @@ class MainActivity : AppCompatActivity() {
         refresh()
     }
 
+    private fun openServer() {
+        if (!LocalStackService.running) {
+            ContextCompat.startForegroundService(this, Intent(this, LocalStackService::class.java))
+        }
+        status.text = "Starting server…"
+        status.postDelayed({
+            refresh()
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:3001/stremio/configure")))
+        }, 650)
+    }
+
     private fun refresh() {
-        val err = LocalStackService.lastError
-        if (LocalStackService.running) {
-            status.text = "● RUNNING\n3001 · 8080 · 8091"
-            toggle.text = "STOP LOCAL AIO"
-        } else {
-            status.text = if (err.isNullOrBlank()) "○ STOPPED" else "○ STOPPED\nError: $err"
-            toggle.text = "START LOCAL AIO"
+        status.text = when {
+            LocalStackService.running -> "● Server running · 127.0.0.1:3001"
+            !LocalStackService.lastError.isNullOrBlank() -> "○ Server stopped · ${LocalStackService.lastError}"
+            else -> "○ Server stopped"
         }
     }
 
     private fun postDelayedRefresh() {
-        status.postDelayed({ refresh() }, 700)
-        status.postDelayed({ refresh() }, 1800)
+        status.postDelayed({ refresh() }, 500)
+        status.postDelayed({ refresh() }, 1200)
     }
 
-    private fun button(textValue: String, action: () -> Unit) = Button(this).apply {
-        text = textValue
-        setOnClickListener { action() }
-    }
-
-    private fun open(url: String) {
-        if (!LocalStackService.running) {
-            ContextCompat.startForegroundService(this, Intent(this, LocalStackService::class.java))
-        }
-        status.postDelayed({
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }, 450)
-    }
-
-    private fun fullWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-        topMargin = 10
-    }
+    private fun fullWidth(top: Int = 0) = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { topMargin = top }
 }
