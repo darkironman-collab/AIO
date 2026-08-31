@@ -1,25 +1,80 @@
-name: Build AIO APK
+name: Build Original AIOStreams Android APK
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  # AIOStreams has no v2.32.2 image/tag. v2.32 currently resolves to the
+  # published stable v2.32.1 image and keeps this Android build on the 2.32 line.
+  AIOSTREAMS_IMAGE: viren070/aiostreams:v2.32
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle assembleDebug
+
+      - name: Bundle original AIOStreams ARM64 runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p app/src/main/assets app/src/main/jniLibs/arm64-v8a
+
+          # Static ARM64 PRoot is packaged as a native library so Android extracts
+          # it into the executable nativeLibraryDir. The app launches it as a process.
+          curl -fL --retry 3 \
+            https://raw.githubusercontent.com/proot-me/proot-static-build/master/static/proot-arm64 \
+            -o app/src/main/jniLibs/arm64-v8a/libproot.so
+          chmod 0755 app/src/main/jniLibs/arm64-v8a/libproot.so
+
+          # Export the official Viren070 AIOStreams ARM64 container filesystem.
+          # No emulation is needed: docker create/export do not execute the image.
+          docker pull --platform linux/arm64 "$AIOSTREAMS_IMAGE"
+          cid="$(docker create --platform linux/arm64 "$AIOSTREAMS_IMAGE")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker export "$cid" | gzip -1 > app/src/main/assets/aiostreams-rootfs.tar.gz
+          docker rm "$cid"
+          trap - EXIT
+
+          test -s app/src/main/assets/aiostreams-rootfs.tar.gz
+          test -s app/src/main/jniLibs/arm64-v8a/libproot.so
+          ls -lh app/src/main/assets/aiostreams-rootfs.tar.gz app/src/main/jniLibs/arm64-v8a/libproot.so
+
+      - name: Build Android APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Verify bundled runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          unzip -l "$apk" | grep -q 'assets/aiostreams-rootfs.tar.gz'
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libproot.so'
+          cp "$apk" AIOStreams-Android-v1.1-arm64-debug.apk
+          sha256sum AIOStreams-Android-v1.1-arm64-debug.apk > AIOStreams-Android-v1.1-arm64-debug.apk.sha256
+          ls -lh AIOStreams-Android-v1.1-arm64-debug.apk
+
       - uses: actions/upload-artifact@v4
         with:
-          name: AIO-Bridge-v1-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: AIOStreams-Android-v1.1-arm64
+          path: |
+            AIOStreams-Android-v1.1-arm64-debug.apk
+            AIOStreams-Android-v1.1-arm64-debug.apk.sha256
+          retention-days: 30
