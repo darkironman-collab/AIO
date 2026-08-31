@@ -1,72 +1,68 @@
 package com.codex.aio
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
+    private val handler = Handler(Looper.getMainLooper())
+    private var openPending = false
+    private var waitCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
-        }
-
         val title = TextView(this).apply {
-            text = "AIO"
-            textSize = 42f
+            text = "AIOStreams"
+            textSize = 38f
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
         }
 
         val subtitle = TextView(this).apply {
-            text = "Local Server"
-            textSize = 18f
+            text = "Original GitHub AIO · Local Android Server"
+            textSize = 16f
             gravity = Gravity.CENTER
-            setPadding(0, 6, 0, 28)
+            setPadding(0, 6, 0, 32)
         }
 
         status = TextView(this).apply {
             textSize = 16f
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 18)
+            setPadding(0, 0, 0, 20)
         }
 
         val server = Button(this).apply {
             text = "SERVER"
-            textSize = 20f
-            setOnClickListener { openServer() }
+            textSize = 21f
+            setOnClickListener { startAndOpenServer() }
         }
 
         val stop = Button(this).apply {
             text = "STOP SERVER"
             setOnClickListener {
+                openPending = false
                 stopService(Intent(this@MainActivity, LocalStackService::class.java))
-                postDelayedRefresh()
+                handler.postDelayed({ refresh() }, 700)
             }
         }
 
         val hint = TextView(this).apply {
-            text = "SERVER par tap karte hi AIO configuration page browser mein khulega."
+            text = "SERVER par tap karo. Pehli baar bundled AIOStreams runtime extract hoga; ready hote hi original /stremio/configure page browser mein khul jayega."
             gravity = Gravity.CENTER
             textSize = 14f
-            setPadding(12, 28, 12, 0)
+            setPadding(12, 30, 12, 0)
         }
 
         val root = LinearLayout(this).apply {
@@ -90,28 +86,59 @@ class MainActivity : AppCompatActivity() {
         refresh()
     }
 
-    private fun openServer() {
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    private fun startAndOpenServer() {
+        if (LocalStackService.ready) {
+            openBrowser()
+            return
+        }
         if (!LocalStackService.running) {
             ContextCompat.startForegroundService(this, Intent(this, LocalStackService::class.java))
         }
-        status.text = "Starting server…"
-        status.postDelayed({
-            refresh()
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:3001/stremio/configure")))
-        }, 650)
+        openPending = true
+        waitCount = 0
+        status.text = "Starting original AIOStreams…"
+        waitUntilReady()
+    }
+
+    private fun waitUntilReady() {
+        if (!openPending) return
+        refresh()
+        when {
+            LocalStackService.ready -> {
+                openPending = false
+                openBrowser()
+            }
+            !LocalStackService.running && !LocalStackService.lastError.isNullOrBlank() -> {
+                openPending = false
+                refresh()
+            }
+            waitCount >= 180 -> {
+                openPending = false
+                status.text = "Server start timeout. STOP SERVER karke retry karo."
+            }
+            else -> {
+                waitCount++
+                handler.postDelayed({ waitUntilReady() }, 1000)
+            }
+        }
+    }
+
+    private fun openBrowser() {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(LocalStackService.CONFIG_URL)))
     }
 
     private fun refresh() {
         status.text = when {
-            LocalStackService.running -> "● Server running · 127.0.0.1:3001"
-            !LocalStackService.lastError.isNullOrBlank() -> "○ Server stopped · ${LocalStackService.lastError}"
+            LocalStackService.ready -> "● AIOStreams ready · 127.0.0.1:3001"
+            LocalStackService.running -> "● ${LocalStackService.statusMessage}"
+            !LocalStackService.lastError.isNullOrBlank() -> "○ ${LocalStackService.lastError}"
             else -> "○ Server stopped"
         }
-    }
-
-    private fun postDelayedRefresh() {
-        status.postDelayed({ refresh() }, 500)
-        status.postDelayed({ refresh() }, 1200)
     }
 
     private fun fullWidth(top: Int = 0) = LinearLayout.LayoutParams(
