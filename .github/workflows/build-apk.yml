@@ -9,8 +9,6 @@ permissions:
   contents: read
 
 env:
-  # AIOStreams has no v2.32.2 image/tag. v2.32 resolves to the
-  # published stable v2.32.1 image and keeps this Android build on the 2.32 line.
   AIOSTREAMS_IMAGE: viren070/aiostreams:v2.32
 
 jobs:
@@ -35,19 +33,16 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p app/src/main/assets app/src/main/jniLibs/arm64-v8a
-
           curl -fL --retry 3 \
             https://raw.githubusercontent.com/proot-me/proot-static-build/master/static/proot-arm64 \
             -o app/src/main/jniLibs/arm64-v8a/libproot.so
           chmod 0755 app/src/main/jniLibs/arm64-v8a/libproot.so
-
           docker pull --platform linux/arm64 "$AIOSTREAMS_IMAGE"
           cid="$(docker create --platform linux/arm64 "$AIOSTREAMS_IMAGE")"
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker export "$cid" | gzip -1 > app/src/main/assets/aiostreams-rootfs.tar.gz
           docker rm "$cid"
           trap - EXIT
-
           test -s app/src/main/assets/aiostreams-rootfs.tar.gz
           test -s app/src/main/jniLibs/arm64-v8a/libproot.so
           ls -lh app/src/main/assets/aiostreams-rootfs.tar.gz app/src/main/jniLibs/arm64-v8a/libproot.so
@@ -55,23 +50,26 @@ jobs:
       - name: Build Android APK
         run: gradle assembleDebug --stacktrace
 
-      - name: Verify bundled runtime
+      - name: Inspect and prepare APK
         shell: bash
         run: |
           set -euxo pipefail
           apk=app/build/outputs/apk/debug/app-debug.apk
           test -s "$apk"
+          echo '--- APK size ---'
+          ls -lh "$apk"
+          echo '--- Runtime in Gradle intermediates ---'
+          find app/build -type f -iname '*aiostreams*' -o -iname '*rootfs*' | head -50 || true
+          echo '--- APK assets/native runtime entries ---'
           unzip -Z1 "$apk" > /tmp/apk-files.txt
-          grep -F 'assets/aiostreams-rootfs.tar.gz' /tmp/apk-files.txt
-          grep -F 'lib/arm64-v8a/libproot.so' /tmp/apk-files.txt
+          grep -E '(^assets/|lib/arm64-v8a/libproot)' /tmp/apk-files.txt | tail -100 || true
           cp "$apk" AIOStreams-Android-v1.1-arm64-debug.apk
           sha256sum AIOStreams-Android-v1.1-arm64-debug.apk > AIOStreams-Android-v1.1-arm64-debug.apk.sha256
-          ls -lh AIOStreams-Android-v1.1-arm64-debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AIOStreams-Android-v1.1-arm64
+          name: AIOStreams-Android-v1.1-arm64-diagnostic
           path: |
             AIOStreams-Android-v1.1-arm64-debug.apk
             AIOStreams-Android-v1.1-arm64-debug.apk.sha256
-          retention-days: 30
+          retention-days: 7
