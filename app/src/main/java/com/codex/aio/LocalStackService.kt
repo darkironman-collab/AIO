@@ -19,7 +19,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
 import java.util.concurrent.Executors
-import java.util.zip.GZIPInputStream
 
 class LocalStackService : Service() {
     companion object {
@@ -160,23 +159,24 @@ exec /nodejs/bin/node /app/packages/server/dist/server.js
         if (rootfs.exists()) rootfs.deleteRecursively()
         rootfs.mkdirs()
 
-        assets.open("aiostreams-rootfs.tar.gz").use { raw ->
-            GZIPInputStream(BufferedInputStream(raw, 1024 * 1024)).use { gz ->
-                TarArchiveInputStream(gz).use { tar ->
-                    val deferredHardLinks = mutableListOf<Pair<File, String>>()
-                    var entry: TarArchiveEntry? = tar.nextTarEntry
-                    while (entry != null) {
-                        extractEntry(rootfs, entry, tar, deferredHardLinks)
-                        entry = tar.nextTarEntry
-                    }
-                    for ((link, targetName) in deferredHardLinks) {
-                        val target = safeFile(rootfs, targetName.trimStart('/'))
-                        link.parentFile?.mkdirs()
-                        runCatching { if (link.exists()) link.delete() }
-                        if (target.exists()) {
-                            runCatching { Os.link(target.absolutePath, link.absolutePath) }
-                                .getOrElse { target.copyTo(link, overwrite = true) }
-                        }
+        // Android's asset packager transparently expands .tar.gz and stores it
+        // in the APK as assets/aiostreams-rootfs.tar. AssetManager therefore
+        // returns the raw POSIX tar stream here — no GZIPInputStream is needed.
+        assets.open("aiostreams-rootfs.tar").use { raw ->
+            TarArchiveInputStream(BufferedInputStream(raw, 1024 * 1024)).use { tar ->
+                val deferredHardLinks = mutableListOf<Pair<File, String>>()
+                var entry: TarArchiveEntry? = tar.nextTarEntry
+                while (entry != null) {
+                    extractEntry(rootfs, entry, tar, deferredHardLinks)
+                    entry = tar.nextTarEntry
+                }
+                for ((link, targetName) in deferredHardLinks) {
+                    val target = safeFile(rootfs, targetName.trimStart('/'))
+                    link.parentFile?.mkdirs()
+                    runCatching { if (link.exists()) link.delete() }
+                    if (target.exists()) {
+                        runCatching { Os.link(target.absolutePath, link.absolutePath) }
+                            .getOrElse { target.copyTo(link, overwrite = true) }
                     }
                 }
             }
